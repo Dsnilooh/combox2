@@ -81,12 +81,14 @@ $supa_res = pg_query_params(
     [$new_id, $f_name, $l_name, $m_phone, $e_mail, $pass_enc]
 );
 
-if (!$supa_res) {
-    // Compensar el primer registro para evitar que quede solo en local
+if (!$supa_res) 
+    if (!$supa_res) {
+    $error = pg_last_error($supa_conn);
+
     $rollback_sql = 'DELETE FROM public.users WHERE id = $1';
     pg_query_params($local_conn, $rollback_sql, [$new_id]);
 
-    exit('Falló el registro en Supabase. Se intentó retirar el registro local. Revisa la conexión y los datos.');
+    exit('Error de Supabase: ' . htmlspecialchars($error));
 }
 
 // Cerrar conexiones
