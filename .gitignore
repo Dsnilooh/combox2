@@ -147,3 +147,15 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# Fotografias locales de usuarios
+/uploads/users/*
+!/uploads/users/.gitkeep
+
+# Copias y archivos temporales
+/backup_before_photos/
+/revision_backend.txt
+*.bak
+/config/supabase.php
+/config/supabase.php
+/config/supabase.php

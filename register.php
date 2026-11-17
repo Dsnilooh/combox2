@@ -8,101 +8,102 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-// Recibir datos del formulario
 $nombre = trim($_POST['fname'] ?? '');
 $apellido = trim($_POST['lname'] ?? '');
 $telefono = trim($_POST['mphone'] ?? '');
 $email = trim($_POST['email'] ?? '');
+$direccion = trim($_POST['address'] ?? '');
+if ($direccion === '') {
+    $direccion = 'No especificada';
+}
 $password = $_POST['psw'] ?? '';
 $confirmar = $_POST['psw_repeat'] ?? '';
 
-// Validar campos obligatorios
 if (
-    $nombre === '' || $apellido === '' ||
-    $telefono === '' || $email === '' ||
-    $password === '' || $confirmar === ''
+    $nombre === '' || $apellido === '' || $telefono === '' ||
+    $email === '' || $password === '' ||
+    $confirmar === ''
 ) {
     exit('Todos los campos son obligatorios.');
 }
 
-// Validar correo
 if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
     exit('El correo electrónico no es válido.');
 }
 
-// Validar confirmación de contraseña
 if ($password !== $confirmar) {
     exit('Las contraseñas no coinciden.');
 }
 
-// Conectar con Supabase
+if (strlen($password) < 8) {
+    exit('La contraseña debe tener al menos 8 caracteres.');
+}
+
 require __DIR__ . '/config/supabase.php';
+require __DIR__ . '/config/user_photo.php';
 
 if (!$supa_conn) {
-    error_log('No se pudo conectar con Supabase.');
     exit('No fue posible conectar con la base de datos.');
 }
 
-// Comprobar si el correo o teléfono ya existen
-$sql = 'SELECT email, mobile_phone
-        FROM public.users
-        WHERE LOWER(email) = LOWER($1)
-           OR mobile_phone = $2
+$sql = 'SELECT id FROM public.users
+        WHERE LOWER(email) = LOWER($1) OR mobile_phone = $2
         LIMIT 1';
 
-$result = pg_query_params(
-    $supa_conn,
-    $sql,
-    [$email, $telefono]
-);
+$result = pg_query_params($supa_conn, $sql, [$email, $telefono]);
 
 if (!$result) {
-    error_log('Error verificando duplicados: ' .
-        pg_last_error($supa_conn));
-
+    error_log(pg_last_error($supa_conn));
     pg_close($supa_conn);
     exit('No se pudieron verificar los datos.');
 }
 
-$usuario_existente = pg_fetch_assoc($result);
-
-// Identificar qué dato está repetido
-if ($usuario_existente) {
+if (pg_fetch_assoc($result)) {
     pg_close($supa_conn);
+    exit('El correo electrónico o teléfono ya está registrado.');
+}
 
-    echo "<script>
-        alert('User email or mobile phone already exists');
-        window.location.href = 'register.html';
-    </script>";
+$photoUrl = null;
 
+try {
+    $photoUrl = null;
+
+    if (isset($_FILES['photo']) &&
+        $_FILES['photo']['error'] !== UPLOAD_ERR_NO_FILE) {
+        $photoUrl = save_user_photo($_FILES['photo']);
+    }
+
+    $hash = password_hash($password, PASSWORD_DEFAULT);
+
+    $sql = 'INSERT INTO public.users
+            (firstname, lastname, mobile_phone, email, password, address, photo_url)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)';
+
+    $result = pg_query_params($supa_conn, $sql, [
+        $nombre,
+        $apellido,
+        $telefono,
+        $email,
+        $hash,
+        $direccion,
+        $photoUrl
+    ]);
+
+    if (!$result) {
+        throw new RuntimeException('No se pudo registrar el usuario. Verifica los datos.');
+    }
+
+    pg_close($supa_conn);
+    header('Location: login.html?registro=ok');
     exit;
-}
 
-// Mantener compatibilidad con el login actual
-$hash = md5($password);
+} catch (Throwable $e) {
+    if ($photoUrl && is_file(__DIR__ . '/' . $photoUrl)) {
+        unlink(__DIR__ . '/' . $photoUrl);
+    }
 
-// Registrar usuario
-$sql = 'INSERT INTO public.users
-        (firstname, lastname, mobile_phone, email, password)
-        VALUES ($1, $2, $3, $4, $5)';
-
-$result = pg_query_params(
-    $supa_conn,
-    $sql,
-    [$nombre, $apellido, $telefono, $email, $hash]
-);
-
-if (!$result) {
-    error_log('Error de registro en Supabase: ' .
-        pg_last_error($supa_conn));
-
+    error_log('Error en registro: ' . $e->getMessage());
     pg_close($supa_conn);
-    exit('No se pudo registrar el usuario. Verifica los datos.');
+    http_response_code(400);
+    exit($e->getMessage());
 }
-
-pg_close($supa_conn);
-
-// Registro exitoso
-header('Location: login.html?registro=ok');
-exit;
-?>
